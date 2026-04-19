@@ -1,9 +1,53 @@
 import { z } from "zod";
-import { eq, and, desc } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
-import { orders, listings, users, varieties } from "@db/schema";
+import { orders, listings, users, varieties, orderIdempotencyKeys } from "@db/schema";
 import { cartItems } from "@db/schema";
+
+const CreateOrderErrorCode = {
+  stockConflict: "ORDER_STOCK_CONFLICT",
+  partialSelection: "ORDER_PARTIAL_CART_SELECTION_INVALID",
+  emptySelection: "ORDER_EMPTY_SELECTION",
+  idempotencyInProgress: "ORDER_IDEMPOTENCY_IN_PROGRESS",
+  idempotencyKeyMismatch: "ORDER_IDEMPOTENCY_KEY_MISMATCH",
+} as const;
+
+function normalizeCartItemIds(ids: number[]): number[] {
+  return [...new Set(ids)].sort((a, b) => a - b);
+}
+
+function buildIdempotencyFingerprint(shippingAddress: string, cartItemIds: number[]): string {
+  return JSON.stringify({ shippingAddress, cartItemIds });
+}
+
+function extractInsertId(result: unknown): number {
+  if (
+    Array.isArray(result) &&
+    typeof result[0] === "object" &&
+    result[0] !== null &&
+    "insertId" in result[0]
+  ) {
+    return Number((result[0] as { insertId: number | string }).insertId);
+  }
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: "ORDER_INSERT_FAILED",
+  });
+}
+
+function extractAffectedRows(result: unknown): number {
+  if (
+    Array.isArray(result) &&
+    typeof result[0] === "object" &&
+    result[0] !== null &&
+    "affectedRows" in result[0]
+  ) {
+    return Number((result[0] as { affectedRows: number | string }).affectedRows);
+  }
+  return 0;
+}
 
 export const orderRouter = createRouter({
   list: authedQuery.query(async ({ ctx }) => {
@@ -94,69 +138,171 @@ export const orderRouter = createRouter({
       z.object({
         shippingAddress: z.string(),
         cartItemIds: z.array(z.number()),
+        idempotencyKey: z.string().trim().min(8).max(120).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
+      const selectedCartItemIds = normalizeCartItemIds(input.cartItemIds);
 
-      const cartItemsData = await db
-        .select({
-          id: cartItems.id,
-          listingId: cartItems.listingId,
-          cartQuantity: cartItems.quantity,
-          listingQuantity: listings.quantity,
-          pricePerStick: listings.pricePerStick,
-          sellerId: listings.sellerId,
-          varietyId: listings.varietyId,
-        })
-        .from(cartItems)
-        .innerJoin(listings, eq(cartItems.listingId, listings.id))
-        .where(and(eq(cartItems.userId, ctx.user.id)));
-
-      const toPurchase = cartItemsData.filter((ci) => input.cartItemIds.includes(ci.id));
-
-      if (toPurchase.length === 0) {
-        throw new Error("No valid cart items selected");
+      if (selectedCartItemIds.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: CreateOrderErrorCode.emptySelection,
+        });
       }
 
-      const createdOrders = [];
-      for (const item of toPurchase) {
-        if (item.cartQuantity > item.listingQuantity) {
-          throw new Error(`Only ${item.listingQuantity} sticks available for one of your selections`);
+      const headerKey =
+        ctx.req.headers.get("x-idempotency-key") ??
+        ctx.req.headers.get("idempotency-key") ??
+        undefined;
+      const idempotencyKey = input.idempotencyKey ?? headerKey;
+      const requestFingerprint = buildIdempotencyFingerprint(
+        input.shippingAddress,
+        selectedCartItemIds,
+      );
+
+      return db.transaction(async (tx) => {
+        if (idempotencyKey) {
+          const existingKeyRows = await tx
+            .select()
+            .from(orderIdempotencyKeys)
+            .where(
+              and(
+                eq(orderIdempotencyKeys.buyerId, ctx.user.id),
+                eq(orderIdempotencyKeys.key, idempotencyKey),
+              ),
+            )
+            .limit(1);
+
+          const existingKey = existingKeyRows[0];
+          if (existingKey) {
+            if (existingKey.requestFingerprint !== requestFingerprint) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: CreateOrderErrorCode.idempotencyKeyMismatch,
+              });
+            }
+
+            if (Array.isArray(existingKey.orderIds)) {
+              return { success: true, orderIds: existingKey.orderIds.map((id) => Number(id)) };
+            }
+
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: CreateOrderErrorCode.idempotencyInProgress,
+            });
+          }
+
+          await tx.insert(orderIdempotencyKeys).values({
+            buyerId: ctx.user.id,
+            key: idempotencyKey,
+            requestFingerprint,
+            orderIds: null,
+          });
         }
 
-        const variety = await db.select().from(varieties).where(eq(varieties.id, item.varietyId)).limit(1);
-        const varietyName = variety[0]?.name ?? "Unknown";
-        const price = parseFloat(item.pricePerStick);
-        const total = price * item.cartQuantity;
-        const platformFee = total * 0.15;
-        const sellerPayout = total - platformFee;
+        const toPurchase = await tx
+          .select({
+            id: cartItems.id,
+            listingId: cartItems.listingId,
+            cartQuantity: cartItems.quantity,
+            listingQuantity: listings.quantity,
+            pricePerStick: listings.pricePerStick,
+            sellerId: listings.sellerId,
+            varietyName: varieties.name,
+          })
+          .from(cartItems)
+          .innerJoin(listings, eq(cartItems.listingId, listings.id))
+          .innerJoin(varieties, eq(listings.varietyId, varieties.id))
+          .where(
+            and(
+              eq(cartItems.userId, ctx.user.id),
+              inArray(cartItems.id, selectedCartItemIds),
+            ),
+          );
 
-        const result = await db.insert(orders).values({
-          buyerId: ctx.user.id,
-          sellerId: item.sellerId,
-          listingId: item.listingId,
-          varietyName,
-          quantity: item.cartQuantity,
-          pricePerStick: item.pricePerStick,
-          totalAmount: total.toFixed(2),
-          platformFee: platformFee.toFixed(2),
-          sellerPayout: sellerPayout.toFixed(2),
-          status: "confirmed",
-          shippingAddress: input.shippingAddress,
-        });
+        if (toPurchase.length !== selectedCartItemIds.length) {
+          const foundIds = new Set(toPurchase.map((item) => item.id));
+          const invalidIds = selectedCartItemIds.filter((id) => !foundIds.has(id));
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `${CreateOrderErrorCode.partialSelection}:${invalidIds.join(",")}`,
+          });
+        }
 
-        await db
-          .update(listings)
-          .set({ quantity: item.listingQuantity - item.cartQuantity })
-          .where(eq(listings.id, item.listingId));
+        const createdOrders: number[] = [];
 
-        createdOrders.push(Number(result[0].insertId));
-      }
+        for (const item of toPurchase) {
+          if (item.cartQuantity > item.listingQuantity) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `${CreateOrderErrorCode.stockConflict}:${item.listingId}`,
+            });
+          }
 
-      await db.delete(cartItems).where(eq(cartItems.userId, ctx.user.id));
+          const price = parseFloat(item.pricePerStick);
+          const total = price * item.cartQuantity;
+          const platformFee = total * 0.15;
+          const sellerPayout = total - platformFee;
 
-      return { success: true, orderIds: createdOrders };
+          const insertResult = await tx.insert(orders).values({
+            buyerId: ctx.user.id,
+            sellerId: item.sellerId,
+            listingId: item.listingId,
+            varietyName: item.varietyName,
+            quantity: item.cartQuantity,
+            pricePerStick: item.pricePerStick,
+            totalAmount: total.toFixed(2),
+            platformFee: platformFee.toFixed(2),
+            sellerPayout: sellerPayout.toFixed(2),
+            status: "confirmed",
+            shippingAddress: input.shippingAddress,
+          });
+
+          const updateResult = await tx
+            .update(listings)
+            .set({ quantity: sql`${listings.quantity} - ${item.cartQuantity}` })
+            .where(
+              and(
+                eq(listings.id, item.listingId),
+                sql`${listings.quantity} >= ${item.cartQuantity}`,
+              ),
+            );
+
+          if (extractAffectedRows(updateResult) !== 1) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `${CreateOrderErrorCode.stockConflict}:${item.listingId}`,
+            });
+          }
+
+          createdOrders.push(extractInsertId(insertResult));
+        }
+
+        await tx
+          .delete(cartItems)
+          .where(
+            and(
+              eq(cartItems.userId, ctx.user.id),
+              inArray(cartItems.id, selectedCartItemIds),
+            ),
+          );
+
+        if (idempotencyKey) {
+          await tx
+            .update(orderIdempotencyKeys)
+            .set({ orderIds: createdOrders })
+            .where(
+              and(
+                eq(orderIdempotencyKeys.buyerId, ctx.user.id),
+                eq(orderIdempotencyKeys.key, idempotencyKey),
+              ),
+            );
+        }
+
+        return { success: true, orderIds: createdOrders };
+      });
     }),
 
   updateStatus: authedQuery
