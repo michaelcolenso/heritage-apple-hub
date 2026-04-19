@@ -11,6 +11,7 @@ import Cart from "./pages/Cart";
 import Orders from "./pages/Orders";
 import Sellers from "./pages/Sellers";
 import Dashboard from "./pages/Dashboard";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 export default function App() {
   return (
@@ -22,10 +23,12 @@ export default function App() {
         <Route path="/varieties" element={<Varieties />} />
         <Route path="/varieties/:slug" element={<VarietyDetail />} />
         <Route path="/marketplace" element={<Marketplace />} />
-        <Route path="/cart" element={<Cart />} />
-        <Route path="/orders" element={<Orders />} />
         <Route path="/sellers" element={<Sellers />} />
-        <Route path="/dashboard/*" element={<Dashboard />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/cart" element={<Cart />} />
+          <Route path="/orders" element={<Orders />} />
+          <Route path="/dashboard/*" element={<Dashboard />} />
+        </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Toaster />
