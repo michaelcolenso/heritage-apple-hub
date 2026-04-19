@@ -108,6 +108,18 @@ export const orders = mysqlTable("orders", {
   index("idx_order_status").on(table.status),
 ]);
 
+export const orderIdempotencyKeys = mysqlTable("order_idempotency_keys", {
+  id: serial("id").primaryKey(),
+  buyerId: bigint("buyerId", { mode: "number", unsigned: true }).notNull(),
+  key: varchar("key", { length: 120 }).notNull(),
+  requestFingerprint: varchar("requestFingerprint", { length: 500 }).notNull(),
+  orderIds: json("orderIds"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("idx_order_idempotency_buyer_key").on(table.buyerId, table.key),
+]);
+
 // ─── Reviews ────────────────────────────────────────────────────
 export const reviews = mysqlTable("reviews", {
   id: serial("id").primaryKey(),
