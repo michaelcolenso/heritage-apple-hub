@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { setCookie } from "hono/cookie";
+import { deleteCookie, setCookie } from "hono/cookie";
 import * as jose from "jose";
 import * as cookie from "cookie";
 import { env } from "../lib/env";
@@ -10,6 +10,31 @@ import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
 import type { TokenResponse } from "./types";
+
+const OAUTH_STATE_COOKIE = "oauth_state_nonce";
+const OAUTH_REDIRECT_COOKIE = "oauth_redirect_target";
+
+function createCorrelationId() {
+  return crypto.randomUUID();
+}
+
+function isAllowedLocalRedirectTarget(value: string | undefined): value is string {
+  if (!value) {
+    return false;
+  }
+  if (!value.startsWith("/") || value.startsWith("//")) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value, "http://localhost");
+    return (
+      parsed.origin === "http://localhost" &&
+      (parsed.protocol === "http:" || parsed.protocol === "https:")
+    );
+  } catch {
+    return false;
+  }
+}
 
 async function exchangeAuthCode(
   code: string,
@@ -73,27 +98,95 @@ export async function authenticateRequest(headers: Headers) {
 
 export function createOAuthCallbackHandler() {
   return async (c: Context) => {
+    const correlationId = createCorrelationId();
     const code = c.req.query("code");
     const state = c.req.query("state");
     const error = c.req.query("error");
     const errorDescription = c.req.query("error_description");
+    const reqCookies = cookie.parse(c.req.header("cookie") || "");
+    const storedState = reqCookies[OAUTH_STATE_COOKIE];
+    const redirectTarget = reqCookies[OAUTH_REDIRECT_COOKIE];
 
     if (error) {
       if (error === "access_denied") {
         return c.redirect("/", 302);
       }
       return c.json(
-        { error, error_description: errorDescription },
+        { error, error_description: errorDescription, correlationId },
         400,
       );
     }
 
-    if (!code || !state) {
-      return c.json({ error: "code and state are required" }, 400);
+    if (!state) {
+      console.warn("[OAuth] Missing state", { correlationId });
+      return c.json(
+        {
+          error: "invalid_state",
+          message: "Missing OAuth state parameter.",
+          correlationId,
+        },
+        400,
+      );
+    }
+
+    if (!storedState) {
+      console.warn("[OAuth] Missing stored state nonce", { correlationId });
+      return c.json(
+        {
+          error: "expired_state",
+          message: "OAuth state is expired or unavailable.",
+          correlationId,
+        },
+        400,
+      );
+    }
+
+    if (state !== storedState) {
+      deleteCookie(c, OAUTH_STATE_COOKIE, { path: "/" });
+      deleteCookie(c, OAUTH_REDIRECT_COOKIE, { path: "/" });
+      console.warn("[OAuth] State mismatch", { correlationId });
+      return c.json(
+        {
+          error: "invalid_state",
+          message: "OAuth state does not match session nonce.",
+          correlationId,
+        },
+        400,
+      );
+    }
+
+    deleteCookie(c, OAUTH_STATE_COOKIE, { path: "/" });
+
+    if (!code) {
+      console.warn("[OAuth] Missing code", { correlationId });
+      return c.json(
+        {
+          error: "invalid_request",
+          message: "Missing OAuth authorization code.",
+          correlationId,
+        },
+        400,
+      );
+    }
+
+    if (redirectTarget && !isAllowedLocalRedirectTarget(redirectTarget)) {
+      deleteCookie(c, OAUTH_REDIRECT_COOKIE, { path: "/" });
+      console.warn("[OAuth] Invalid redirect target", {
+        correlationId,
+        redirectTarget,
+      });
+      return c.json(
+        {
+          error: "invalid_redirect_target",
+          message: "Redirect target must be a local path.",
+          correlationId,
+        },
+        400,
+      );
     }
 
     try {
-      const redirectUri = atob(state);
+      const redirectUri = `${new URL(c.req.url).origin}/api/oauth/callback`;
       const tokenResp = await exchangeAuthCode(code, redirectUri);
       const { userId } = await verifyAccessToken(tokenResp.access_token);
       const userProfile = await kimiUsers.getProfile(tokenResp.access_token);
@@ -119,10 +212,22 @@ export function createOAuthCallbackHandler() {
         maxAge: Session.maxAgeMs / 1000,
       });
 
-      return c.redirect("/", 302);
+      const safeRedirectTarget = isAllowedLocalRedirectTarget(redirectTarget)
+        ? redirectTarget
+        : "/";
+      deleteCookie(c, OAUTH_REDIRECT_COOKIE, { path: "/" });
+
+      return c.redirect(safeRedirectTarget, 302);
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
-      return c.json({ error: "OAuth callback failed" }, 500);
+      console.error("[OAuth] Callback failed", { correlationId, error });
+      return c.json(
+        {
+          error: "oauth_callback_failed",
+          message: "OAuth callback failed.",
+          correlationId,
+        },
+        500,
+      );
     }
   };
 }
