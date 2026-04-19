@@ -10,6 +10,8 @@ import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
 import type { TokenResponse } from "./types";
+import { ErrorCode, toErrorResponse } from "../lib/errors";
+import { logError, logInfo, logWarn, measure } from "../lib/log";
 
 async function exchangeAuthCode(
   code: string,
@@ -31,7 +33,7 @@ async function exchangeAuthCode(
 
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`Token exchange failed (${resp.status}): ${text}`);
+    throw Errors.internal(`Token exchange failed (${resp.status}): ${text}`);
   }
 
   return resp.json() as Promise<TokenResponse>;
@@ -48,7 +50,7 @@ async function verifyAccessToken(
   const userId = payload.user_id as string;
   const clientId = payload.client_id as string;
   if (!userId) {
-    throw new Error("user_id missing from access token");
+    throw Errors.badRequest("Invalid token payload");
   }
   return { userId, clientId };
 }
@@ -57,7 +59,7 @@ export async function authenticateRequest(headers: Headers) {
   const cookies = cookie.parse(headers.get("cookie") || "");
   const token = cookies[Session.cookieName];
   if (!token) {
-    console.warn("[auth] No session cookie found in request.");
+    logWarn("auth.session_cookie_missing");
     throw Errors.forbidden("Invalid authentication token.");
   }
   const claim = await verifySessionToken(token);
@@ -73,6 +75,9 @@ export async function authenticateRequest(headers: Headers) {
 
 export function createOAuthCallbackHandler() {
   return async (c: Context) => {
+    const requestId = c.req.header("x-request-id") || (c.req.raw as Request & { requestId?: string }).requestId || "unknown";
+    const startedAt = performance.now();
+
     const code = c.req.query("code");
     const state = c.req.query("state");
     const error = c.req.query("error");
@@ -80,25 +85,26 @@ export function createOAuthCallbackHandler() {
 
     if (error) {
       if (error === "access_denied") {
+        logInfo("auth.callback.denied", { requestId });
         return c.redirect("/", 302);
       }
-      return c.json(
-        { error, error_description: errorDescription },
-        400,
-      );
+
+      return c.json(toErrorResponse(errorDescription || error, ErrorCode.badRequest, requestId), 400);
     }
 
     if (!code || !state) {
-      return c.json({ error: "code and state are required" }, 400);
+      return c.json(toErrorResponse("code and state are required", ErrorCode.badRequest, requestId), 400);
     }
 
     try {
       const redirectUri = atob(state);
-      const tokenResp = await exchangeAuthCode(code, redirectUri);
+      const { result: tokenResp, durationMs: tokenExchangeMs } = await measure(() =>
+        exchangeAuthCode(code, redirectUri),
+      );
       const { userId } = await verifyAccessToken(tokenResp.access_token);
       const userProfile = await kimiUsers.getProfile(tokenResp.access_token);
       if (!userProfile) {
-        throw new Error("Failed to fetch user profile from Kimi Open");
+        throw Errors.internal("Failed to fetch user profile from provider");
       }
 
       await upsertUser({
@@ -119,10 +125,23 @@ export function createOAuthCallbackHandler() {
         maxAge: Session.maxAgeMs / 1000,
       });
 
+      logInfo("auth.callback.succeeded", {
+        requestId,
+        userId,
+        tokenExchangeMs,
+        durationMs: Number((performance.now() - startedAt).toFixed(2)),
+      });
       return c.redirect("/", 302);
-    } catch (error) {
-      console.error("[OAuth] Callback failed", error);
-      return c.json({ error: "OAuth callback failed" }, 500);
+    } catch (err) {
+      logError("auth.callback.failed", {
+        requestId,
+        durationMs: Number((performance.now() - startedAt).toFixed(2)),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return c.json(
+        toErrorResponse("OAuth callback failed", ErrorCode.externalService, requestId),
+        500,
+      );
     }
   };
 }

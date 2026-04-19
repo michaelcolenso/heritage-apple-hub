@@ -2,6 +2,7 @@ import { z } from "zod";
 import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { createRouter, publicQuery, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
+import { logInfo, measure } from "./lib/log";
 import { listings, varieties, users } from "@db/schema";
 
 export const listingRouter = createRouter({
@@ -18,8 +19,10 @@ export const listingRouter = createRouter({
         sortBy: z.enum(["newest", "price_asc", "price_desc"]).default("newest"),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = getDb();
+      const requestId = ctx.requestId;
+      const startedAt = performance.now();
       const { page, limit, varietyId, sellerId, zone, sortBy } = input;
       const offset = (page - 1) * limit;
 
@@ -32,7 +35,7 @@ export const listingRouter = createRouter({
       const orderFn = sortBy === "price_asc" ? asc : sortBy === "price_desc" ? desc : desc;
       const orderCol = sortBy === "price_asc" || sortBy === "price_desc" ? listings.pricePerStick : listings.createdAt;
 
-      const [items, countResult] = await Promise.all([
+      const { result: [items, countResult], durationMs: queryMs } = await measure(() => Promise.all([
         db
           .select({
             id: listings.id,
@@ -60,7 +63,7 @@ export const listingRouter = createRouter({
           .limit(limit)
           .offset(offset),
         db.select({ count: sql<number>`count(*)` }).from(listings).where(whereClause),
-      ]);
+      ]));
 
       let filtered = items;
       if (zone) {
@@ -73,6 +76,19 @@ export const listingRouter = createRouter({
 
       const total = Number(countResult[0]?.count ?? 0);
 
+      logInfo("listing.list.completed", {
+        requestId,
+        varietyId,
+        sellerId,
+        zone,
+        page,
+        limit,
+        resultCount: filtered.length,
+        total,
+        queryMs,
+        durationMs: Number((performance.now() - startedAt).toFixed(2)),
+      });
+
       return {
         items: filtered,
         total,
@@ -83,8 +99,10 @@ export const listingRouter = createRouter({
 
   getById: publicQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = getDb();
+      const requestId = ctx.requestId;
+      const startedAt = performance.now();
       const result = await db
         .select({
           id: listings.id,
@@ -113,6 +131,13 @@ export const listingRouter = createRouter({
         .innerJoin(users, eq(listings.sellerId, users.id))
         .where(eq(listings.id, input.id))
         .limit(1);
+
+      logInfo("listing.get_by_id.completed", {
+        requestId,
+        listingId: input.id,
+        found: Boolean(result[0]),
+        durationMs: Number((performance.now() - startedAt).toFixed(2)),
+      });
 
       return result[0] ?? null;
     }),

@@ -2,9 +2,20 @@ import { ErrorMessages } from "@contracts/constants";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { getStableErrorCode, ErrorCode } from "./lib/errors";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  errorFormatter({ shape, error, ctx }) {
+    return {
+      ...shape,
+      data: {
+        ...shape.data,
+        requestId: ctx?.requestId ?? "unknown",
+        stableErrorCode: getStableErrorCode(error),
+      },
+    };
+  },
 });
 
 export const createRouter = t.router;
@@ -17,6 +28,7 @@ const requireAuth = t.middleware(async (opts) => {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: ErrorMessages.unauthenticated,
+      cause: { stableErrorCode: ErrorCode.unauthorized },
     });
   }
 
@@ -31,6 +43,7 @@ function requireRole(role: string) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: ErrorMessages.insufficientRole,
+        cause: { stableErrorCode: ErrorCode.forbidden },
       });
     }
 
