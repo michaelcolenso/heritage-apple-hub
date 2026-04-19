@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 43 33% 93%;
+    --foreground: 24 27% 12%;
+    --card: 47 71% 94%;
+    --card-foreground: 24 27% 12%;
+    --popover: 47 71% 94%;
+    --popover-foreground: 24 27% 12%;
+    --primary: 14 75% 63%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 120 8% 52%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 43 20% 88%;
+    --muted-foreground: 24 17% 25%;
+    --accent: 24 60% 70%;
+    --accent-foreground: 24 27% 12%;
+    --destructive: 4 70% 46%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 120 8% 75%;
+    --input: 120 8% 75%;
+    --ring: 14 75% 63%;
+    --radius: 0.625rem;
+
+    --color-bark: #261d17;
+    --color-bark-warm: #4a3b2f;
+    --color-flesh: #e8725a;
+    --color-cream: #fefae0;
+    --color-sage: #7e8f7e;
+    --color-sage-light: #b8c4b8;
+    --color-bone: #f5f0e6;
+    --color-blush: #e8a87c;
+    --color-crimson: #c0392b;
+    --color-amber: #d4a574;
+    --color-surface: rgba(254, 250, 224, 0.85);
+    --color-surface-solid: #faf6ea;
+
+    --font-display: 'Instrument Serif', serif;
+    --font-body: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-[#f5f0e6] text-[#261d17] antialiased;
+    font-family: var(--font-body);
+  }
+  h1, h2, h3.display {
+    font-family: var(--font-display);
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+  .font-body {
+    font-family: var(--font-body);
+  }
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
