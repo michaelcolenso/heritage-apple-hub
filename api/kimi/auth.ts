@@ -10,6 +10,7 @@ import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
 import type { TokenResponse } from "./types";
+import { decodeOAuthState } from "./auth-helpers";
 
 async function exchangeAuthCode(
   code: string,
@@ -93,7 +94,10 @@ export function createOAuthCallbackHandler() {
     }
 
     try {
-      const redirectUri = atob(state);
+      const redirectUri = decodeOAuthState(state);
+      if (!redirectUri) {
+        return c.json({ error: "invalid state" }, 400);
+      }
       const tokenResp = await exchangeAuthCode(code, redirectUri);
       const { userId } = await verifyAccessToken(tokenResp.access_token);
       const userProfile = await kimiUsers.getProfile(tokenResp.access_token);

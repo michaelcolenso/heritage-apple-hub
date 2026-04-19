@@ -2,11 +2,11 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import { Search, ShoppingCart, Menu, X, TreePine } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { trpc } from "@/providers/trpc";
+import { trpc } from "@/lib/trpc";
 
 export default function Navigation() {
   const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileOpenPath, setMobileOpenPath] = useState<string | null>(null);
   const location = useLocation();
   const { user, isAuthenticated, logout } = useAuth();
 
@@ -20,11 +20,9 @@ export default function Navigation() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [location.pathname]);
 
   const cartCount = cartItems?.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
+  const mobileOpen = mobileOpenPath === location.pathname;
   const isHome = location.pathname === "/";
   const showTransparent = isHome && !scrolled;
 
@@ -139,7 +137,11 @@ export default function Navigation() {
 
             {/* Mobile menu toggle */}
             <button
-              onClick={() => setMobileOpen(!mobileOpen)}
+              onClick={() => {
+                setMobileOpenPath((current) =>
+                  current === location.pathname ? null : location.pathname,
+                );
+              }}
               className={`md:hidden p-2 rounded-lg ${
                 showTransparent ? "text-[var(--color-cream)]" : "text-[var(--color-bark)]"
               }`}
@@ -163,6 +165,7 @@ export default function Navigation() {
               <Link
                 key={link.to}
                 to={link.to}
+                onClick={() => setMobileOpenPath(null)}
                 className="text-lg font-medium text-[var(--color-bark)] py-2 border-b border-[var(--color-sage-light)]/30"
               >
                 {link.label}
@@ -170,18 +173,18 @@ export default function Navigation() {
             ))}
             {isAuthenticated ? (
               <>
-                <Link to="/dashboard" className="text-lg font-medium text-[var(--color-bark)] py-2">
+                <Link to="/dashboard" onClick={() => setMobileOpenPath(null)} className="text-lg font-medium text-[var(--color-bark)] py-2">
                   Dashboard
                 </Link>
-                <Link to="/cart" className="text-lg font-medium text-[var(--color-bark)] py-2">
+                <Link to="/cart" onClick={() => setMobileOpenPath(null)} className="text-lg font-medium text-[var(--color-bark)] py-2">
                   Cart {cartCount > 0 && `(${cartCount})`}
                 </Link>
-                <button onClick={logout} className="text-left text-lg font-medium text-[var(--color-crimson)] py-2">
+                <button onClick={() => { setMobileOpenPath(null); logout(); }} className="text-left text-lg font-medium text-[var(--color-crimson)] py-2">
                   Sign out
                 </button>
               </>
             ) : (
-              <Link to="/login" className="text-lg font-medium text-[var(--color-flesh)] py-2">
+              <Link to="/login" onClick={() => setMobileOpenPath(null)} className="text-lg font-medium text-[var(--color-flesh)] py-2">
                 Sign in
               </Link>
             )}

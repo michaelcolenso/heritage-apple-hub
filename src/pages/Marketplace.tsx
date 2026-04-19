@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { trpc } from "@/providers/trpc";
+import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, MapPin, ShoppingCart, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import Footer from "@/sections/Footer";
+import { applyListingSearch } from "@/lib/listing-filters";
 
 export default function Marketplace() {
   const [search, setSearch] = useState("");
@@ -28,12 +29,7 @@ export default function Marketplace() {
     },
   });
 
-  const filteredItems = search
-    ? data?.items.filter((item) =>
-        item.varietyName.toLowerCase().includes(search.toLowerCase()) ||
-        item.sellerName?.toLowerCase().includes(search.toLowerCase())
-      )
-    : data?.items;
+  const filteredItems = applyListingSearch(data?.items ?? [], search);
 
   return (
     <div className="min-h-screen bg-[var(--color-bone)] pt-16">

@@ -1,5 +1,5 @@
 import { useParams, Link } from "react-router";
-import { trpc } from "@/providers/trpc";
+import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, MapPin, ShoppingCart } from "lucide-react";
