@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { users, varieties, listings, orders, reviews, cartItems, wishlists, tradeOffers } from "./schema";
+import { users, varieties, listings, orders, reviews, cartItems, wishlists, tradeOffers, listingShippingZones } from "./schema";
 
 // ─── User Relations ─────────────────────────────────────────────
 export const usersRelations = relations(users, ({ many }) => ({
@@ -23,6 +23,11 @@ export const listingsRelations = relations(listings, ({ one, many }) => ({
   seller: one(users, { fields: [listings.sellerId], references: [users.id] }),
   variety: one(varieties, { fields: [listings.varietyId], references: [varieties.id] }),
   orders: many(orders),
+  shippingZones: many(listingShippingZones),
+}));
+
+export const listingShippingZonesRelations = relations(listingShippingZones, ({ one }) => ({
+  listing: one(listings, { fields: [listingShippingZones.listingId], references: [listings.id] }),
 }));
 
 // ─── Order Relations ────────────────────────────────────────────

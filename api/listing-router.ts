@@ -1,8 +1,22 @@
 import { z } from "zod";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, sql, exists, gte, lte } from "drizzle-orm";
 import { createRouter, publicQuery, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
-import { listings, varieties, users } from "@db/schema";
+import { listings, listingShippingZones, varieties, users } from "@db/schema";
+
+function parseShippingZones(raw: string) {
+  const parsed = raw
+    .split(",")
+    .map((zone) => zone.trim())
+    .filter(Boolean)
+    .map((zone) => Number(zone));
+
+  if (parsed.some((zone) => !Number.isInteger(zone) || zone < 1 || zone > 13)) {
+    throw new Error("Invalid shipping zone. Zones must be integers between 1 and 13.");
+  }
+
+  return [...new Set(parsed)];
+}
 
 export const listingRouter = createRouter({
   list: publicQuery
@@ -20,12 +34,29 @@ export const listingRouter = createRouter({
     )
     .query(async ({ input }) => {
       const db = getDb();
-      const { page, limit, varietyId, sellerId, zone, sortBy } = input;
+      const { page, limit, varietyId, sellerId, zone, minPrice, maxPrice, sortBy } = input;
       const offset = (page - 1) * limit;
 
       const conditions = [eq(listings.status, "active")];
       if (varietyId) conditions.push(eq(listings.varietyId, varietyId));
       if (sellerId) conditions.push(eq(listings.sellerId, sellerId));
+      if (minPrice !== undefined) conditions.push(gte(listings.pricePerStick, minPrice.toFixed(2)));
+      if (maxPrice !== undefined) conditions.push(lte(listings.pricePerStick, maxPrice.toFixed(2)));
+      if (zone !== undefined) {
+        conditions.push(
+          exists(
+            db
+              .select({ id: listingShippingZones.id })
+              .from(listingShippingZones)
+              .where(
+                and(
+                  eq(listingShippingZones.listingId, listings.id),
+                  eq(listingShippingZones.zone, zone),
+                ),
+              ),
+          ),
+        );
+      }
 
       const whereClause = and(...conditions);
 
@@ -62,19 +93,10 @@ export const listingRouter = createRouter({
         db.select({ count: sql<number>`count(*)` }).from(listings).where(whereClause),
       ]);
 
-      let filtered = items;
-      if (zone) {
-        filtered = items.filter((item) => {
-          if (!item.shippingZones) return true;
-          const zones = item.shippingZones.split(",").map((z) => parseInt(z.trim()));
-          return zones.includes(zone);
-        });
-      }
-
       const total = Number(countResult[0]?.count ?? 0);
 
       return {
-        items: filtered,
+        items,
         total,
         page,
         totalPages: Math.ceil(total / limit),
@@ -152,18 +174,30 @@ export const listingRouter = createRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
+      const parsedZones = parseShippingZones(input.shippingZones);
+      const normalizedShippingZones = parsedZones.join(",");
+
       const result = await db.insert(listings).values({
         sellerId: ctx.user.id,
         varietyId: input.varietyId,
         quantity: input.quantity,
         pricePerStick: input.pricePerStick.toFixed(2),
         description: input.description ?? null,
-        shippingZones: input.shippingZones,
+        shippingZones: normalizedShippingZones,
         harvestDate: input.harvestDate ? new Date(input.harvestDate) : null,
         images: input.images ? JSON.stringify(input.images) : null,
         status: "active",
       });
-      return { id: Number(result[0].insertId), success: true };
+      const listingId = Number(result[0].insertId);
+      if (parsedZones.length > 0) {
+        await db.insert(listingShippingZones).values(
+          parsedZones.map((zone) => ({
+            listingId,
+            zone,
+          })),
+        );
+      }
+      return { id: listingId, success: true };
     }),
 
   update: authedQuery
@@ -184,11 +218,27 @@ export const listingRouter = createRouter({
       if (rest.pricePerStick !== undefined) {
         updateData.pricePerStick = rest.pricePerStick.toFixed(2);
       }
+      const parsedZones = rest.shippingZones !== undefined ? parseShippingZones(rest.shippingZones) : null;
+      if (parsedZones) {
+        updateData.shippingZones = parsedZones.join(",");
+      }
 
       await db
         .update(listings)
         .set(updateData)
         .where(and(eq(listings.id, id), eq(listings.sellerId, ctx.user.id)));
+
+      if (parsedZones) {
+        await db.delete(listingShippingZones).where(eq(listingShippingZones.listingId, id));
+        if (parsedZones.length > 0) {
+          await db.insert(listingShippingZones).values(
+            parsedZones.map((zone) => ({
+              listingId: id,
+              zone,
+            })),
+          );
+        }
+      }
 
       return { success: true };
     }),
@@ -197,6 +247,7 @@ export const listingRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
+      await db.delete(listingShippingZones).where(eq(listingShippingZones.listingId, input.id));
       await db
         .delete(listings)
         .where(and(eq(listings.id, input.id), eq(listings.sellerId, ctx.user.id)));

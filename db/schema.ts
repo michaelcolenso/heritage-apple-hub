@@ -83,6 +83,17 @@ export const listings = mysqlTable("listings", {
   index("idx_listing_price").on(table.pricePerStick),
 ]);
 
+export const listingShippingZones = mysqlTable("listing_shipping_zones", {
+  id: serial("id").primaryKey(),
+  listingId: bigint("listingId", { mode: "number", unsigned: true }).notNull(),
+  zone: int("zone").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("idx_lsz_listing").on(table.listingId),
+  index("idx_lsz_zone").on(table.zone),
+  uniqueIndex("idx_lsz_listing_zone").on(table.listingId, table.zone),
+]);
+
 // ─── Orders ─────────────────────────────────────────────────────
 export const orders = mysqlTable("orders", {
   id: serial("id").primaryKey(),
