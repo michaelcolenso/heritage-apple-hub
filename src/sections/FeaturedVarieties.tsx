@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { trpc } from "@/providers/trpc";
+import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const varietyImages: Record<string, string> = {

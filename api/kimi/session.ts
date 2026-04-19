@@ -1,6 +1,7 @@
 import * as jose from "jose";
 import { env } from "../lib/env";
 import type { SessionPayload } from "./types";
+import { toSessionPayload } from "./session-helpers";
 
 const JWT_ALG = "HS256";
 
@@ -27,12 +28,12 @@ export async function verifySessionToken(
     const { payload } = await jose.jwtVerify(token, secret, {
       algorithms: [JWT_ALG],
     });
-    const { unionId, clientId } = payload;
-    if (!unionId || !clientId) {
+    const normalizedPayload = toSessionPayload(payload as Record<string, unknown>);
+    if (!normalizedPayload) {
       console.warn("[session] JWT payload missing required fields.");
       return null;
     }
-    return { unionId, clientId } as SessionPayload;
+    return normalizedPayload;
   } catch (error) {
     console.warn("[session] JWT verification failed:", error);
     return null;

@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { trpc } from "@/providers/trpc";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import Footer from "@/sections/Footer";
+import { calculateCheckoutTotals, createCheckoutPayload } from "@/lib/checkout";
 
 export default function Cart() {
   const navigate = useNavigate();
@@ -35,20 +36,31 @@ export default function Cart() {
     },
   });
 
-  const subtotal = cartItems?.reduce((sum, item) => sum + Number(item.pricePerStick) * item.quantity, 0) ?? 0;
-  const platformFee = subtotal * 0.15;
-  const total = subtotal + platformFee;
+  const checkoutTotals = calculateCheckoutTotals(
+    (cartItems ?? []).map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      pricePerStick: Number(item.pricePerStick),
+    })),
+  );
+  const { subtotal, platformFee, total } = checkoutTotals;
 
   const handleCheckout = () => {
-    if (!shippingAddress.trim()) {
-      toast.error("Please enter your shipping address");
-      return;
+    try {
+      const payload = createCheckoutPayload(
+        shippingAddress,
+        (cartItems ?? []).map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          pricePerStick: Number(item.pricePerStick),
+        })),
+      );
+
+      createOrder.mutate(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create order";
+      toast.error(message);
     }
-    if (!cartItems || cartItems.length === 0) return;
-    createOrder.mutate({
-      shippingAddress,
-      cartItemIds: cartItems.map((item) => item.id),
-    });
   };
 
   if (isLoading) {

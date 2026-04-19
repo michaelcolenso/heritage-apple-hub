@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { trpc } from "@/providers/trpc";
+import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Package, Truck, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import Footer from "@/sections/Footer";

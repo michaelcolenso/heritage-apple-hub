@@ -4,6 +4,7 @@ import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { orders, listings, users, varieties } from "@db/schema";
 import { cartItems } from "@db/schema";
+import { canTransitionOrderStatus, type OrderStatus } from "./lib/order-status";
 
 export const orderRouter = createRouter({
   list: authedQuery.query(async ({ ctx }) => {
@@ -174,6 +175,10 @@ export const orderRouter = createRouter({
       if (!order[0]) throw new Error("Order not found");
       if (order[0].sellerId !== ctx.user.id && order[0].buyerId !== ctx.user.id) {
         throw new Error("Unauthorized");
+      }
+
+      if (!canTransitionOrderStatus(order[0].status as OrderStatus, input.status as OrderStatus)) {
+        throw new Error(`Invalid status transition from ${order[0].status} to ${input.status}`);
       }
 
       const updateData: Record<string, unknown> = { status: input.status };
