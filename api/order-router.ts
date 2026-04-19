@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
 import { createRouter, authedQuery } from "./middleware";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "./queries/connection";
 import { orders, listings, users, varieties } from "@db/schema";
 import { cartItems } from "@db/schema";
+import {
+  ORDER_STATUS_VALUES,
+  type OrderActorRole,
+  validateOrderStatusTransition,
+} from "./domain/order-transitions";
 
 export const orderRouter = createRouter({
   list: authedQuery.query(async ({ ctx }) => {
@@ -163,7 +169,7 @@ export const orderRouter = createRouter({
     .input(
       z.object({
         orderId: z.number(),
-        status: z.enum(["pending", "confirmed", "shipped", "delivered", "cancelled", "disputed"]),
+        status: z.enum(ORDER_STATUS_VALUES),
         trackingNumber: z.string().optional(),
       })
     )
@@ -171,9 +177,59 @@ export const orderRouter = createRouter({
       const db = getDb();
       const order = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
 
-      if (!order[0]) throw new Error("Order not found");
-      if (order[0].sellerId !== ctx.user.id && order[0].buyerId !== ctx.user.id) {
-        throw new Error("Unauthorized");
+      if (!order[0]) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Order not found",
+        });
+      }
+
+      const isSeller = order[0].sellerId === ctx.user.id;
+      const isBuyer = order[0].buyerId === ctx.user.id;
+      const isAdmin = ctx.user.role === "admin";
+
+      if (!isSeller && !isBuyer && !isAdmin) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not allowed to update this order",
+          cause: {
+            orderId: input.orderId,
+            userId: ctx.user.id,
+            role: ctx.user.role,
+          },
+        });
+      }
+
+      const actorRole: OrderActorRole = isAdmin && !isSeller && !isBuyer
+        ? "admin"
+        : isSeller
+          ? "seller"
+          : "buyer";
+
+      const validation = validateOrderStatusTransition({
+        actorRole,
+        fromStatus: order[0].status ?? "pending",
+        toStatus: input.status,
+      });
+
+      if (!validation.ok) {
+        throw new TRPCError({
+          code: validation.code,
+          message: validation.reason,
+          cause: validation.details,
+        });
+      }
+
+      if (input.status === "shipped" && !input.trackingNumber) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Tracking number is required when marking an order as shipped",
+          cause: {
+            actorRole,
+            orderId: input.orderId,
+            toStatus: input.status,
+          },
+        });
       }
 
       const updateData: Record<string, unknown> = { status: input.status };
