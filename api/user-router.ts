@@ -5,6 +5,11 @@ import { getDb } from "./queries/connection";
 import { users, listings, orders, reviews } from "@db/schema";
 import { sql } from "drizzle-orm";
 
+const displayNameSchema = z.string().trim().min(2).max(80);
+const bioSchema = z.string().trim().min(10).max(1_000);
+const locationSchema = z.string().trim().min(2).max(100);
+const avatarSchema = z.string().trim().url().max(2_048);
+
 export const userRouter = createRouter({
   me: authedQuery.query(async ({ ctx }) => {
     return ctx.user;
@@ -13,11 +18,11 @@ export const userRouter = createRouter({
   update: authedQuery
     .input(
       z.object({
-        name: z.string().optional(),
-        bio: z.string().optional(),
-        location: z.string().optional(),
+        name: displayNameSchema.optional(),
+        bio: bioSchema.optional(),
+        location: locationSchema.optional(),
         hardinessZone: z.number().min(1).max(13).optional(),
-        avatar: z.string().optional(),
+        avatar: avatarSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

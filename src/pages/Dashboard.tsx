@@ -164,12 +164,24 @@ function MyListings() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const parsedZones = formData.shippingZones
+      .split(",")
+      .map((zone) => Number(zone.trim()))
+      .filter((zone) => Number.isInteger(zone) && zone >= 1 && zone <= 13);
+
+    const shippingZones = Array.from(new Set(parsedZones)).sort((a, b) => a - b);
+
+    if (shippingZones.length === 0) {
+      toast.error("Add at least one valid shipping zone (1-13)");
+      return;
+    }
+
     createListing.mutate({
       varietyId: Number(formData.varietyId),
       quantity: Number(formData.quantity),
       pricePerStick: Number(formData.pricePerStick),
       description: formData.description,
-      shippingZones: formData.shippingZones,
+      shippingZones,
     });
   };
 
