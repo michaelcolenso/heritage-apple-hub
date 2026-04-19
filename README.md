@@ -1,73 +1,45 @@
-# React + TypeScript + Vite
+# Heritage Apple Hub
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Heritage Apple Hub is a React + TypeScript + Vite application for showcasing and transacting heritage apple varieties.
 
-Currently, two official plugins are available:
+## Operations quick reference
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### Release checklist
 
-## React Compiler
+Follow this sequence for every production deployment:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. **Schema migration dry-run**
+   - Generate and review the migration plan.
+   - Run migrations against a staging or production-like clone.
+   - Validate query performance and data integrity before touching production.
+2. **Backup verification**
+   - Confirm the latest automated backup completed successfully.
+   - Execute a restore drill to a disposable environment and verify recovered data.
+3. **Canary deploy**
+   - Deploy the new application version to a small traffic slice.
+   - Monitor error rate, latency, and key business events before full rollout.
+4. **Health checks**
+   - Validate API health endpoints, database connectivity, queue/workers, and auth flows.
+   - Confirm alerts and dashboards are receiving fresh telemetry.
+5. **Post-deploy smoke tests**
+   - Validate critical user journeys (login, browse varieties, checkout, order visibility).
+   - Confirm admin/operator workflows function as expected.
 
-## Expanding the ESLint configuration
+### Migration guardrails
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+For all schema and application changes, use a three-phase migration pattern:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+1. **Backward-compatible migration first**
+   - Additive schema changes only (new nullable columns/tables/indexes, dual-write support).
+   - Never remove or rename schema elements required by the current production app version.
+2. **Code path switch**
+   - Deploy application code that reads/writes through the new schema path.
+   - Use feature flags or staged rollout where possible.
+   - Observe for at least one full traffic cycle before cleanup.
+3. **Cleanup migration**
+   - Remove deprecated columns/tables/indexes only after confirming no old code paths remain.
+   - Treat destructive changes as a separate release with explicit rollback planning.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Detailed runbook
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+See [`docs/operations/release-and-rollback.md`](docs/operations/release-and-rollback.md) for detailed release and rollback procedures for both application and database changes.
