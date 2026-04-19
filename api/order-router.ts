@@ -4,6 +4,8 @@ import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { orders, listings, users, varieties } from "@db/schema";
 import { cartItems } from "@db/schema";
+import { createTrpcError, ErrorCode } from "./lib/errors";
+import { logInfo, measure } from "./lib/log";
 
 export const orderRouter = createRouter({
   list: authedQuery.query(async ({ ctx }) => {
@@ -98,8 +100,10 @@ export const orderRouter = createRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
+      const requestId = ctx.requestId;
+      const startedAt = performance.now();
 
-      const cartItemsData = await db
+      const { result: cartItemsData, durationMs: cartFetchMs } = await measure(() => db
         .select({
           id: cartItems.id,
           listingId: cartItems.listingId,
@@ -111,18 +115,26 @@ export const orderRouter = createRouter({
         })
         .from(cartItems)
         .innerJoin(listings, eq(cartItems.listingId, listings.id))
-        .where(and(eq(cartItems.userId, ctx.user.id)));
+        .where(and(eq(cartItems.userId, ctx.user.id))));
 
       const toPurchase = cartItemsData.filter((ci) => input.cartItemIds.includes(ci.id));
 
       if (toPurchase.length === 0) {
-        throw new Error("No valid cart items selected");
+        throw createTrpcError({
+          code: "BAD_REQUEST",
+          message: "No valid cart items selected.",
+          stableErrorCode: ErrorCode.badRequest,
+        });
       }
 
       const createdOrders = [];
       for (const item of toPurchase) {
         if (item.cartQuantity > item.listingQuantity) {
-          throw new Error(`Only ${item.listingQuantity} sticks available for one of your selections`);
+          throw createTrpcError({
+            code: "BAD_REQUEST",
+            message: `One or more listings do not have enough stock (available: ${item.listingQuantity}).`,
+            stableErrorCode: ErrorCode.badRequest,
+          });
         }
 
         const variety = await db.select().from(varieties).where(eq(varieties.id, item.varietyId)).limit(1);
@@ -156,6 +168,15 @@ export const orderRouter = createRouter({
 
       await db.delete(cartItems).where(eq(cartItems.userId, ctx.user.id));
 
+      logInfo("checkout.completed", {
+        requestId,
+        buyerId: ctx.user.id,
+        cartFetchMs,
+        selectedItemCount: toPurchase.length,
+        orderCount: createdOrders.length,
+        durationMs: Number((performance.now() - startedAt).toFixed(2)),
+      });
+
       return { success: true, orderIds: createdOrders };
     }),
 
@@ -171,9 +192,19 @@ export const orderRouter = createRouter({
       const db = getDb();
       const order = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
 
-      if (!order[0]) throw new Error("Order not found");
+      if (!order[0]) {
+        throw createTrpcError({
+          code: "NOT_FOUND",
+          message: "Order not found.",
+          stableErrorCode: ErrorCode.notFound,
+        });
+      }
       if (order[0].sellerId !== ctx.user.id && order[0].buyerId !== ctx.user.id) {
-        throw new Error("Unauthorized");
+        throw createTrpcError({
+          code: "FORBIDDEN",
+          message: "You do not have permission to update this order.",
+          stableErrorCode: ErrorCode.forbidden,
+        });
       }
 
       const updateData: Record<string, unknown> = { status: input.status };

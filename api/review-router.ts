@@ -3,6 +3,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import { createRouter, publicQuery, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { reviews, users } from "@db/schema";
+import { createTrpcError, ErrorCode } from "./lib/errors";
 
 export const reviewRouter = createRouter({
   list: publicQuery
@@ -37,9 +38,27 @@ export const reviewRouter = createRouter({
 
       const order = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
 
-      if (!order[0]) throw new Error("Order not found");
-      if (order[0].buyerId !== ctx.user.id) throw new Error("Unauthorized");
-      if (order[0].status !== "delivered") throw new Error("Can only review delivered orders");
+      if (!order[0]) {
+        throw createTrpcError({
+          code: "NOT_FOUND",
+          message: "Order not found.",
+          stableErrorCode: ErrorCode.notFound,
+        });
+      }
+      if (order[0].buyerId !== ctx.user.id) {
+        throw createTrpcError({
+          code: "FORBIDDEN",
+          message: "You can only review your own orders.",
+          stableErrorCode: ErrorCode.forbidden,
+        });
+      }
+      if (order[0].status !== "delivered") {
+        throw createTrpcError({
+          code: "BAD_REQUEST",
+          message: "Only delivered orders can be reviewed.",
+          stableErrorCode: ErrorCode.badRequest,
+        });
+      }
 
       const existing = await db
         .select()
@@ -47,7 +66,13 @@ export const reviewRouter = createRouter({
         .where(eq(reviews.orderId, input.orderId))
         .limit(1);
 
-      if (existing[0]) throw new Error("Review already exists for this order");
+      if (existing[0]) {
+        throw createTrpcError({
+          code: "CONFLICT",
+          message: "A review for this order already exists.",
+          stableErrorCode: ErrorCode.conflict,
+        });
+      }
 
       await db.insert(reviews).values({
         orderId: input.orderId,
