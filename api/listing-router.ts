@@ -4,6 +4,13 @@ import { createRouter, publicQuery, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { listings, varieties, users } from "@db/schema";
 
+const listingTextSchema = z.string().trim().min(1).max(2_000);
+const listingImageSchema = z.string().trim().url().max(2_048);
+const shippingZonesSchema = z.array(z.number().int().min(1).max(13)).min(1).max(13);
+
+const normalizeShippingZones = (zones: number[]) =>
+  Array.from(new Set(zones)).sort((a, b) => a - b);
+
 export const listingRouter = createRouter({
   list: publicQuery
     .input(
@@ -26,6 +33,11 @@ export const listingRouter = createRouter({
       const conditions = [eq(listings.status, "active")];
       if (varietyId) conditions.push(eq(listings.varietyId, varietyId));
       if (sellerId) conditions.push(eq(listings.sellerId, sellerId));
+      if (zone) {
+        conditions.push(
+          sql`(${listings.shippingZones} IS NULL OR JSON_CONTAINS(${listings.shippingZones}, JSON_ARRAY(${zone})))`
+        );
+      }
 
       const whereClause = and(...conditions);
 
@@ -62,19 +74,10 @@ export const listingRouter = createRouter({
         db.select({ count: sql<number>`count(*)` }).from(listings).where(whereClause),
       ]);
 
-      let filtered = items;
-      if (zone) {
-        filtered = items.filter((item) => {
-          if (!item.shippingZones) return true;
-          const zones = item.shippingZones.split(",").map((z) => parseInt(z.trim()));
-          return zones.includes(zone);
-        });
-      }
-
       const total = Number(countResult[0]?.count ?? 0);
 
       return {
-        items: filtered,
+        items,
         total,
         page,
         totalPages: Math.ceil(total / limit),
@@ -144,23 +147,24 @@ export const listingRouter = createRouter({
         varietyId: z.number(),
         quantity: z.number().min(1),
         pricePerStick: z.number().min(0.01),
-        description: z.string().optional(),
-        shippingZones: z.string(),
+        description: listingTextSchema.optional(),
+        shippingZones: shippingZonesSchema,
         harvestDate: z.string().optional(),
-        images: z.array(z.string()).optional(),
+        images: z.array(listingImageSchema).max(10).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
+      const shippingZones = normalizeShippingZones(input.shippingZones);
       const result = await db.insert(listings).values({
         sellerId: ctx.user.id,
         varietyId: input.varietyId,
         quantity: input.quantity,
         pricePerStick: input.pricePerStick.toFixed(2),
         description: input.description ?? null,
-        shippingZones: input.shippingZones,
+        shippingZones,
         harvestDate: input.harvestDate ? new Date(input.harvestDate) : null,
-        images: input.images ? JSON.stringify(input.images) : null,
+        images: input.images ? Array.from(new Set(input.images)) : null,
         status: "active",
       });
       return { id: Number(result[0].insertId), success: true };
@@ -172,8 +176,9 @@ export const listingRouter = createRouter({
         id: z.number(),
         quantity: z.number().min(1).optional(),
         pricePerStick: z.number().min(0.01).optional(),
-        description: z.string().optional(),
-        shippingZones: z.string().optional(),
+        description: listingTextSchema.optional(),
+        shippingZones: shippingZonesSchema.optional(),
+        images: z.array(listingImageSchema).max(10).optional(),
         status: z.enum(["active", "paused", "sold_out", "draft"]).optional(),
       })
     )
@@ -183,6 +188,12 @@ export const listingRouter = createRouter({
       const updateData: Record<string, unknown> = { ...rest };
       if (rest.pricePerStick !== undefined) {
         updateData.pricePerStick = rest.pricePerStick.toFixed(2);
+      }
+      if (rest.shippingZones !== undefined) {
+        updateData.shippingZones = normalizeShippingZones(rest.shippingZones);
+      }
+      if (rest.images !== undefined) {
+        updateData.images = Array.from(new Set(rest.images));
       }
 
       await db

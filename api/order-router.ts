@@ -5,6 +5,14 @@ import { getDb } from "./queries/connection";
 import { orders, listings, users, varieties } from "@db/schema";
 import { cartItems } from "@db/schema";
 
+const normalizeShippingAddress = (value: string) =>
+  value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim().replace(/\s+/g, " "))
+    .filter(Boolean)
+    .join(", ");
+
 export const orderRouter = createRouter({
   list: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
@@ -92,7 +100,13 @@ export const orderRouter = createRouter({
   create: authedQuery
     .input(
       z.object({
-        shippingAddress: z.string(),
+        shippingAddress: z
+          .string()
+          .trim()
+          .min(10, "Shipping address is required")
+          .max(300)
+          .transform(normalizeShippingAddress)
+          .refine((value) => value.length > 0, "Shipping address is required"),
         cartItemIds: z.array(z.number()),
       })
     )
