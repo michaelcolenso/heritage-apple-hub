@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Routes, Route, useLocation } from "react-router";
 import { trpc } from "@/providers/trpc";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -450,9 +451,6 @@ function SettingsPage() {
     </div>
   );
 }
-
-// Need to import useAuth here since it's used in SettingsPage
-import { useAuth } from "@/hooks/useAuth";
 
 export default function Dashboard() {
   return (
