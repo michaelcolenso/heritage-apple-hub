@@ -2,6 +2,25 @@
 
 Heritage Apple Hub is a React + TypeScript + Vite application for showcasing and transacting heritage apple varieties.
 
+## Local setup
+
+```bash
+cp .env.example .env          # fill in DATABASE_URL, KIMI_*, STRIPE_*, S3_*
+npm install
+npm run db:migrate            # apply Drizzle migrations from db/migrations/
+npx tsx db/seed.ts            # optional: seed varieties, sellers, sample orders
+npm run dev                   # http://localhost:3000
+```
+
+When the schema changes, regenerate the migration with `npm run db:generate` and commit the new SQL file alongside the schema diff.
+
+### Stripe webhooks (local)
+
+```bash
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+# copy the whsec_... value into STRIPE_WEBHOOK_SECRET
+```
+
 ## Operations quick reference
 
 ### Release checklist

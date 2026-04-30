@@ -72,6 +72,11 @@ export default function VarietyDetail() {
     );
   }
 
+  const sellerListingImage = variety.availability
+    ?.flatMap((listing) => (Array.isArray(listing.images) ? (listing.images as string[]) : []))
+    .find((url) => typeof url === "string" && url.length > 0);
+  const heroImage = sellerListingImage ?? variety.imageUrl ?? getVarietyImage(variety.slug);
+
   return (
     <div className="min-h-screen bg-[var(--color-bone)] pt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -87,7 +92,7 @@ export default function VarietyDetail() {
           {/* Image */}
           <div className="aspect-square rounded-2xl overflow-hidden bg-[var(--color-sage-light)]/20">
             <img
-              src={getVarietyImage(variety.slug)}
+              src={heroImage}
               alt={variety.name}
               className="w-full h-full object-cover"
             />

@@ -14,9 +14,12 @@ import {
   DollarSign,
   TrendingUp,
   ClipboardList,
+  CreditCard,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import Footer from "@/sections/Footer";
+import ImageUploader from "@/components/ImageUploader";
 
 function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -24,6 +27,7 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
     { icon: LayoutDashboard, label: "Overview", to: "/dashboard" },
     { icon: Package, label: "My Listings", to: "/dashboard/listings" },
     { icon: ShoppingBag, label: "Orders", to: "/dashboard/orders" },
+    { icon: CreditCard, label: "Payments", to: "/dashboard/payments" },
     { icon: Settings, label: "Settings", to: "/dashboard/settings" },
   ];
 
@@ -144,14 +148,17 @@ function MyListings() {
     description: "",
     shippingZones: "",
   });
+  const [images, setImages] = useState<string[]>([]);
 
   const createListing = trpc.listing.create.useMutation({
     onSuccess: () => {
       utils.listing.myListings.invalidate();
       setShowForm(false);
       setFormData({ varietyId: "", quantity: "", pricePerStick: "", description: "", shippingZones: "" });
+      setImages([]);
       toast.success("Your scion listing is now live");
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const deleteListing = trpc.listing.delete.useMutation({
@@ -171,6 +178,7 @@ function MyListings() {
       pricePerStick: Number(formData.pricePerStick),
       description: formData.description,
       shippingZones: formData.shippingZones,
+      images: images.length > 0 ? images : undefined,
     });
   };
 
@@ -247,6 +255,10 @@ function MyListings() {
               className="w-full h-24 rounded-lg border border-[var(--color-sage-light)] bg-[var(--color-bone)] px-3 py-2 text-sm resize-none"
               placeholder="Describe your scion wood, collection date, rootstock compatibility..."
             />
+          </div>
+          <div>
+            <label className="block text-sm text-[var(--color-bark)] mb-1">Photos</label>
+            <ImageUploader kind="listing" value={images} onChange={setImages} max={6} />
           </div>
           <div className="flex items-center gap-3">
             <Button type="submit" disabled={createListing.isPending} className="bg-[var(--color-flesh)] text-white rounded-full">
@@ -374,6 +386,60 @@ function SellerOrders() {
   );
 }
 
+function Payments() {
+  const { data: status, isLoading } = trpc.payment.getConnectStatus.useQuery();
+  const startOnboarding = trpc.payment.createConnectOnboardingLink.useMutation({
+    onSuccess: (data) => {
+      if (data?.url) window.location.assign(data.url);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  if (isLoading) {
+    return <Skeleton className="h-48 rounded-2xl" />;
+  }
+
+  const ready = status?.chargesEnabled && status?.payoutsEnabled;
+
+  return (
+    <div>
+      <h2 className="font-display text-2xl text-[var(--color-bark)] mb-6">Payments</h2>
+      <div className="bg-[var(--color-surface-solid)] rounded-2xl p-6 max-w-lg space-y-4">
+        <p className="text-sm text-[var(--color-bark-warm)]">
+          Heritage Roots uses Stripe Connect to pay sellers. Buyers are charged through Stripe
+          Checkout; the platform takes a 15% fee and the remainder is transferred to your account.
+        </p>
+        <div className="flex items-center gap-2 text-sm">
+          <div className={`w-2.5 h-2.5 rounded-full ${ready ? "bg-green-500" : "bg-amber-500"}`} />
+          <span className="text-[var(--color-bark)]">
+            {!status?.connected
+              ? "Not connected"
+              : ready
+              ? "Ready to receive payouts"
+              : status?.detailsSubmitted
+              ? "Awaiting Stripe verification"
+              : "Onboarding incomplete"}
+          </span>
+        </div>
+        {ready ? (
+          <div className="flex items-center gap-2 text-sm text-[var(--color-sage)]">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Charges enabled · Payouts enabled</span>
+          </div>
+        ) : (
+          <Button
+            onClick={() => startOnboarding.mutate()}
+            disabled={startOnboarding.isPending}
+            className="bg-[var(--color-flesh)] hover:bg-[var(--color-flesh)]/90 text-white rounded-full"
+          >
+            {startOnboarding.isPending ? "Redirecting..." : status?.connected ? "Continue onboarding" : "Connect Stripe"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
@@ -385,12 +451,21 @@ function SettingsPage() {
     },
   });
 
+  const requestVerification = trpc.user.requestSellerVerification.useMutation({
+    onSuccess: () => {
+      utils.user.me.invalidate();
+      toast.success("Verification requested. An admin will review your account.");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   const [form, setForm] = useState({
     name: user?.name ?? "",
     bio: user?.bio ?? "",
     location: user?.location ?? "",
     hardinessZone: user?.hardinessZone ?? "",
   });
+  const [avatarImages, setAvatarImages] = useState<string[]>(user?.avatar ? [user.avatar] : []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -399,6 +474,7 @@ function SettingsPage() {
       bio: form.bio || undefined,
       location: form.location || undefined,
       hardinessZone: form.hardinessZone ? Number(form.hardinessZone) : undefined,
+      avatar: avatarImages[0] ?? undefined,
     });
   };
 
@@ -406,6 +482,10 @@ function SettingsPage() {
     <div>
       <h2 className="font-display text-2xl text-[var(--color-bark)] mb-6">Settings</h2>
       <form onSubmit={handleSubmit} className="bg-[var(--color-surface-solid)] rounded-2xl p-6 space-y-4 max-w-lg">
+        <div>
+          <label className="block text-sm text-[var(--color-bark)] mb-1">Profile photo</label>
+          <ImageUploader kind="avatar" value={avatarImages} onChange={setAvatarImages} max={1} />
+        </div>
         <div>
           <label className="block text-sm text-[var(--color-bark)] mb-1">Display Name</label>
           <Input
@@ -448,6 +528,27 @@ function SettingsPage() {
           {updateUser.isPending ? "Saving..." : "Save Changes"}
         </Button>
       </form>
+
+      {!user?.isVerifiedSeller && (
+        <div className="mt-8 max-w-lg bg-[var(--color-surface-solid)] rounded-2xl p-6 space-y-3">
+          <h3 className="font-body font-semibold text-[var(--color-bark)]">Become a verified seller</h3>
+          <p className="text-sm text-[var(--color-bark-warm)]">
+            Verified sellers get a badge on listings and the marketplace. Submit a request and an
+            admin will review your orchard details.
+          </p>
+          {user?.sellerVerificationRequested ? (
+            <p className="text-sm text-[var(--color-sage)]">Verification requested · pending admin review.</p>
+          ) : (
+            <Button
+              onClick={() => requestVerification.mutate()}
+              disabled={requestVerification.isPending}
+              className="bg-[var(--color-bark)] hover:bg-[var(--color-bark)]/90 text-white rounded-full"
+            >
+              {requestVerification.isPending ? "Submitting..." : "Request verification"}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -459,6 +560,7 @@ export default function Dashboard() {
         <Route path="/" element={<Overview />} />
         <Route path="/listings" element={<MyListings />} />
         <Route path="/orders" element={<SellerOrders />} />
+        <Route path="/payments" element={<Payments />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </DashboardLayout>

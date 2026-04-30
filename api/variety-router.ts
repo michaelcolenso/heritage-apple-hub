@@ -73,6 +73,7 @@ export const varietyRouter = createRouter({
           description: listings.description,
           shippingZones: listings.shippingZones,
           status: listings.status,
+          images: listings.images,
           harvestDate: listings.harvestDate,
           sellerName: users.name,
           sellerId: users.id,

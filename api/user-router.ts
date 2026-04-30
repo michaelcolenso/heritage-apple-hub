@@ -97,6 +97,15 @@ export const userRouter = createRouter({
     return sellersWithStats;
   }),
 
+  requestSellerVerification: authedQuery.mutation(async ({ ctx }) => {
+    const db = getDb();
+    await db
+      .update(users)
+      .set({ sellerVerificationRequested: true })
+      .where(eq(users.id, ctx.user.id));
+    return { success: true };
+  }),
+
   dashboard: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
     const userId = ctx.user.id;

@@ -2,9 +2,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { createRouter, authedQuery } from "./middleware";
-import { TRPCError } from "@trpc/server";
 import { getDb } from "./queries/connection";
-import { orders, listings, users, varieties, orderIdempotencyKeys } from "@db/schema";
+import { orders, listings, users, varieties, orderIdempotencyKeys, reviews } from "@db/schema";
 import { cartItems } from "@db/schema";
 import {
   ORDER_STATUS_VALUES,
@@ -70,6 +69,7 @@ export const orderRouter = createRouter({
         updatedAt: orders.updatedAt,
         sellerName: users.name,
         sellerId: users.id,
+        hasReview: sql<boolean>`EXISTS(SELECT 1 FROM ${reviews} WHERE ${reviews.orderId} = ${orders.id})`,
       })
       .from(orders)
       .innerJoin(users, eq(orders.sellerId, users.id))
@@ -262,7 +262,7 @@ export const orderRouter = createRouter({
             totalAmount: total.toFixed(2),
             platformFee: platformFee.toFixed(2),
             sellerPayout: sellerPayout.toFixed(2),
-            status: "confirmed",
+            status: "pending",
             shippingAddress: input.shippingAddress,
           });
 

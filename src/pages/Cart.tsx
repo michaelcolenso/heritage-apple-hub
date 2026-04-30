@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,11 @@ import { toast } from "sonner";
 import Footer from "@/sections/Footer";
 
 export default function Cart() {
-  const navigate = useNavigate();
   const utils = trpc.useUtils();
 
   const { data: cartItems, isLoading } = trpc.cart.get.useQuery();
   const [shippingAddress, setShippingAddress] = useState("");
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   const updateItem = trpc.cart.update.useMutation({
     onSuccess: () => utils.cart.get.invalidate(),
@@ -23,33 +23,42 @@ export default function Cart() {
       toast.success("Item removed from cart");
     },
   });
-  const createOrder = trpc.order.create.useMutation({
-    onSuccess: () => {
-      utils.cart.get.invalidate();
-      utils.order.list.invalidate();
-      toast.success("Your order has been confirmed!");
-      navigate("/orders");
-    },
-    onError: (err) => {
-      toast.error(err.message);
-    },
-  });
+  const createOrder = trpc.order.create.useMutation();
+  const startCheckout = trpc.payment.createCheckoutSession.useMutation();
 
   const subtotal = cartItems?.reduce((sum, item) => sum + Number(item.pricePerStick) * item.quantity, 0) ?? 0;
   const platformFee = subtotal * 0.15;
   const total = subtotal + platformFee;
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!shippingAddress.trim()) {
       toast.error("Please enter your shipping address");
       return;
     }
     if (!cartItems || cartItems.length === 0) return;
-    createOrder.mutate({
-      shippingAddress,
-      cartItemIds: cartItems.map((item) => item.id),
-    });
+    setIsCheckingOut(true);
+    try {
+      const { orderIds } = await createOrder.mutateAsync({
+        shippingAddress,
+        cartItemIds: cartItems.map((item) => item.id),
+      });
+      utils.cart.get.invalidate();
+      utils.order.list.invalidate();
+      const { url } = await startCheckout.mutateAsync({ orderIds });
+      if (!url) {
+        toast.error("Could not start payment. Please contact support.");
+        setIsCheckingOut(false);
+        return;
+      }
+      window.location.assign(url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Checkout failed";
+      toast.error(message);
+      setIsCheckingOut(false);
+    }
   };
+
+  const isPending = isCheckingOut || createOrder.isPending || startCheckout.isPending;
 
   if (isLoading) {
     return (
@@ -189,10 +198,10 @@ export default function Cart() {
 
             <Button
               onClick={handleCheckout}
-              disabled={createOrder.isPending}
+              disabled={isPending}
               className="w-full bg-[var(--color-flesh)] hover:bg-[var(--color-flesh)]/90 text-white rounded-full py-3"
             >
-              {createOrder.isPending ? "Processing..." : `Checkout — $${total.toFixed(2)}`}
+              {isPending ? "Redirecting to Stripe..." : `Checkout — $${total.toFixed(2)}`}
             </Button>
 
             <p className="text-xs text-[var(--color-sage)] text-center mt-3">

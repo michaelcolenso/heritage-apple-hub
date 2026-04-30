@@ -5,6 +5,9 @@ import { cartRouter } from "./cart-router";
 import { orderRouter } from "./order-router";
 import { reviewRouter } from "./review-router";
 import { userRouter } from "./user-router";
+import { paymentRouter } from "./payment-router";
+import { uploadRouter } from "./upload-router";
+import { adminRouter } from "./admin-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -16,6 +19,9 @@ export const appRouter = createRouter({
   order: orderRouter,
   review: reviewRouter,
   user: userRouter,
+  payment: paymentRouter,
+  upload: uploadRouter,
+  admin: adminRouter,
 });
 
 export type AppRouter = typeof appRouter;

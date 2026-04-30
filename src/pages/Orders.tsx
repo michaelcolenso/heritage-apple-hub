@@ -3,6 +3,7 @@ import { trpc } from "@/providers/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Package, Truck, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import Footer from "@/sections/Footer";
+import ReviewDialog from "@/components/ReviewDialog";
 
 const statusConfig: Record<string, { label: string; icon: typeof Package; color: string }> = {
   pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -77,13 +78,11 @@ export default function Orders() {
                     </div>
                   </div>
 
-                  {status === "delivered" && (
-                    <Link
-                      to="#"
-                      className="text-sm text-[var(--color-flesh)] hover:underline"
-                    >
-                      Leave a review →
-                    </Link>
+                  {status === "delivered" && !order.hasReview && (
+                    <ReviewDialog orderId={order.id} varietyName={order.varietyName} />
+                  )}
+                  {status === "delivered" && order.hasReview && (
+                    <p className="text-sm text-[var(--color-sage)]">Reviewed · thanks!</p>
                   )}
                 </div>
               );
