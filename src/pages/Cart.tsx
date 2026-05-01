@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import Footer from "@/sections/Footer";
 
 export default function Cart() {
   const utils = trpc.useUtils();
+  const navigate = useNavigate();
 
   const { data: cartItems, isLoading } = trpc.cart.get.useQuery();
   const [shippingAddress, setShippingAddress] = useState("");
@@ -37,22 +38,30 @@ export default function Cart() {
     }
     if (!cartItems || cartItems.length === 0) return;
     setIsCheckingOut(true);
+    let createdOrderIds: number[] | null = null;
     try {
-      const { orderIds } = await createOrder.mutateAsync({
+      const result = await createOrder.mutateAsync({
         shippingAddress,
         cartItemIds: cartItems.map((item) => item.id),
       });
+      createdOrderIds = result.orderIds;
       utils.cart.get.invalidate();
       utils.order.list.invalidate();
-      const { url } = await startCheckout.mutateAsync({ orderIds });
+      const { url } = await startCheckout.mutateAsync({ orderIds: result.orderIds });
       if (!url) {
-        toast.error("Could not start payment. Please contact support.");
-        setIsCheckingOut(false);
-        return;
+        throw new Error("Stripe did not return a checkout URL");
       }
       window.location.assign(url);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Checkout failed";
+      // Orders may have already been created (and stock decremented) before
+      // session creation failed. Send the buyer to /orders where they can
+      // resume payment for the pending order(s).
+      if (createdOrderIds && createdOrderIds.length > 0) {
+        toast.error(`${message} — your order is saved; finish payment from Orders.`);
+        navigate("/orders");
+        return;
+      }
       toast.error(message);
       setIsCheckingOut(false);
     }

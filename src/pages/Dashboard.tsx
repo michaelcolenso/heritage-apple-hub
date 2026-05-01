@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import Footer from "@/sections/Footer";
 import ImageUploader from "@/components/ImageUploader";
+import ShipOrderDialog from "@/components/ShipOrderDialog";
 
 function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -325,10 +326,6 @@ function TrashIcon() {
 
 function SellerOrders() {
   const { data: orders, isLoading } = trpc.order.listSeller.useQuery();
-  const utils = trpc.useUtils();
-  const updateStatus = trpc.order.updateStatus.useMutation({
-    onSuccess: () => utils.order.listSeller.invalidate(),
-  });
 
   if (isLoading) {
     return <Skeleton className="h-64 rounded-2xl" />;
@@ -364,13 +361,7 @@ function SellerOrders() {
               </div>
               {order.status === "confirmed" && (
                 <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => updateStatus.mutate({ orderId: order.id, status: "shipped" })}
-                    className="bg-[var(--color-flesh)] text-white rounded-full text-xs"
-                  >
-                    Mark as Shipped
-                  </Button>
+                  <ShipOrderDialog orderId={order.id} varietyName={order.varietyName} />
                 </div>
               )}
               {order.shippingAddress && (

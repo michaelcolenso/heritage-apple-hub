@@ -156,6 +156,31 @@ describe("handleStripeWebhook", () => {
     await expect(handleStripeWebhook(buildContext("{}"))).rejects.toThrow("stripe transient");
   });
 
+  it("throws when seller has no Connect destination so Stripe retries", async () => {
+    const { db } = buildDb({
+      ordersForUpdate: [
+        {
+          id: 1,
+          buyerId: 7,
+          sellerId: 9,
+          listingId: 100,
+          quantity: 2,
+          sellerPayout: "20.00",
+          status: "confirmed",
+        },
+      ],
+      user: { stripeConnectId: null },
+    });
+    mockGetDb.mockReturnValue(db);
+    mockConstructEvent.mockReturnValue({
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_x", metadata: { orderIds: "1" } } },
+    });
+
+    await expect(handleStripeWebhook(buildContext("{}"))).rejects.toThrow(/stripeConnectId/);
+    expect(mockTransferCreate).not.toHaveBeenCalled();
+  });
+
   it("cancels and restocks pending orders on payment_intent.payment_failed", async () => {
     const { db, updates } = buildDb({
       ordersForUpdate: [

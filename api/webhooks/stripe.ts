@@ -32,7 +32,16 @@ async function markOrdersConfirmed(orderIds: number[], paymentIntentId: string) 
     if (order.status !== "confirmed") continue;
     const seller = await db.select().from(users).where(eq(users.id, order.sellerId)).limit(1);
     const destination = seller[0]?.stripeConnectId;
-    if (!destination) continue;
+    if (!destination) {
+      // Buyer was charged but the seller has no Connect account. Throwing returns
+      // non-2xx so Stripe retries (up to ~3 days), giving the seller a window to
+      // complete onboarding. listing.create now blocks unconnected sellers, so
+      // this should only fire for legacy listings; admins can resolve persistent
+      // failures via the dispute flow.
+      throw new Error(
+        `Seller ${order.sellerId} has no stripeConnectId; cannot transfer payout for order ${order.id}`,
+      );
+    }
     // Stripe may deliver checkout.session.completed and payment_intent.succeeded
     // for the same payment, and retries any non-2xx webhook. The idempotency key
     // ensures a duplicate event returns the existing transfer rather than paying
