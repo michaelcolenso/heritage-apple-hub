@@ -33,17 +33,21 @@ async function markOrdersConfirmed(orderIds: number[], paymentIntentId: string) 
     const seller = await db.select().from(users).where(eq(users.id, order.sellerId)).limit(1);
     const destination = seller[0]?.stripeConnectId;
     if (!destination) continue;
-    try {
-      await stripe.transfers.create({
+    // Stripe may deliver checkout.session.completed and payment_intent.succeeded
+    // for the same payment, and retries any non-2xx webhook. The idempotency key
+    // ensures a duplicate event returns the existing transfer rather than paying
+    // the seller a second time. Errors are intentionally not caught: a failed
+    // transfer should bubble up so the webhook returns non-2xx and Stripe retries.
+    await stripe.transfers.create(
+      {
         amount: Math.round(parseFloat(order.sellerPayout) * 100),
         currency: "usd",
         destination,
         transfer_group: `order_group_${orderIds.sort((a, b) => a - b).join("-")}`,
         metadata: { orderId: String(order.id) },
-      });
-    } catch (err) {
-      console.error("Failed to transfer to seller", { orderId: order.id, err });
-    }
+      },
+      { idempotencyKey: `transfer_order_${order.id}_${paymentIntentId}` },
+    );
   }
 }
 
