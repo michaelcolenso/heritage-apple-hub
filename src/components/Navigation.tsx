@@ -109,6 +109,18 @@ export default function Navigation() {
 
             {isAuthenticated ? (
               <div className="hidden sm:flex items-center gap-2">
+                {user?.role === "admin" && (
+                  <Link
+                    to="/admin"
+                    className={`text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-full ${
+                      showTransparent
+                        ? "bg-[var(--color-cream)]/20 text-[var(--color-cream)]"
+                        : "bg-[var(--color-bark)]/10 text-[var(--color-bark)]"
+                    }`}
+                  >
+                    Admin
+                  </Link>
+                )}
                 <Link
                   to="/dashboard"
                   className={`text-sm font-medium ${

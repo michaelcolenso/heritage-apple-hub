@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { eq, and, desc, asc, sql, exists, gte, lte } from "drizzle-orm";
 import { createRouter, publicQuery, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { listings, listingShippingZones, varieties, users } from "@db/schema";
+import { isStripeConfigured } from "./lib/stripe";
 
 function parseShippingZones(raw: string) {
   const parsed = raw
@@ -72,6 +74,7 @@ export const listingRouter = createRouter({
             description: listings.description,
             shippingZones: listings.shippingZones,
             status: listings.status,
+            images: listings.images,
             harvestDate: listings.harvestDate,
             createdAt: listings.createdAt,
             varietyName: varieties.name,
@@ -174,6 +177,15 @@ export const listingRouter = createRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
+
+      if (isStripeConfigured() && !ctx.user.stripePayoutsEnabled) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Connect your Stripe account and enable payouts before publishing listings.",
+        });
+      }
+
       const parsedZones = parseShippingZones(input.shippingZones);
       const normalizedShippingZones = parsedZones.join(",");
 
@@ -185,7 +197,7 @@ export const listingRouter = createRouter({
         description: input.description ?? null,
         shippingZones: normalizedShippingZones,
         harvestDate: input.harvestDate ? new Date(input.harvestDate) : null,
-        images: input.images ? JSON.stringify(input.images) : null,
+        images: input.images ?? null,
         status: "active",
       });
       const listingId = Number(result[0].insertId);

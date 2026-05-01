@@ -8,11 +8,12 @@ import { toast } from "sonner";
 import Footer from "@/sections/Footer";
 
 export default function Cart() {
-  const navigate = useNavigate();
   const utils = trpc.useUtils();
+  const navigate = useNavigate();
 
   const { data: cartItems, isLoading } = trpc.cart.get.useQuery();
   const [shippingAddress, setShippingAddress] = useState("");
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
 
   const updateItem = trpc.cart.update.useMutation({
     onSuccess: () => utils.cart.get.invalidate(),
@@ -23,33 +24,50 @@ export default function Cart() {
       toast.success("Item removed from cart");
     },
   });
-  const createOrder = trpc.order.create.useMutation({
-    onSuccess: () => {
-      utils.cart.get.invalidate();
-      utils.order.list.invalidate();
-      toast.success("Your order has been confirmed!");
-      navigate("/orders");
-    },
-    onError: (err) => {
-      toast.error(err.message);
-    },
-  });
+  const createOrder = trpc.order.create.useMutation();
+  const startCheckout = trpc.payment.createCheckoutSession.useMutation();
 
   const subtotal = cartItems?.reduce((sum, item) => sum + Number(item.pricePerStick) * item.quantity, 0) ?? 0;
   const platformFee = subtotal * 0.15;
   const total = subtotal + platformFee;
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!shippingAddress.trim()) {
       toast.error("Please enter your shipping address");
       return;
     }
     if (!cartItems || cartItems.length === 0) return;
-    createOrder.mutate({
-      shippingAddress,
-      cartItemIds: cartItems.map((item) => item.id),
-    });
+    setIsCheckingOut(true);
+    let createdOrderIds: number[] | null = null;
+    try {
+      const result = await createOrder.mutateAsync({
+        shippingAddress,
+        cartItemIds: cartItems.map((item) => item.id),
+      });
+      createdOrderIds = result.orderIds;
+      utils.cart.get.invalidate();
+      utils.order.list.invalidate();
+      const { url } = await startCheckout.mutateAsync({ orderIds: result.orderIds });
+      if (!url) {
+        throw new Error("Stripe did not return a checkout URL");
+      }
+      window.location.assign(url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Checkout failed";
+      // Orders may have already been created (and stock decremented) before
+      // session creation failed. Send the buyer to /orders where they can
+      // resume payment for the pending order(s).
+      if (createdOrderIds && createdOrderIds.length > 0) {
+        toast.error(`${message} — your order is saved; finish payment from Orders.`);
+        navigate("/orders");
+        return;
+      }
+      toast.error(message);
+      setIsCheckingOut(false);
+    }
   };
+
+  const isPending = isCheckingOut || createOrder.isPending || startCheckout.isPending;
 
   if (isLoading) {
     return (
@@ -189,10 +207,10 @@ export default function Cart() {
 
             <Button
               onClick={handleCheckout}
-              disabled={createOrder.isPending}
+              disabled={isPending}
               className="w-full bg-[var(--color-flesh)] hover:bg-[var(--color-flesh)]/90 text-white rounded-full py-3"
             >
-              {createOrder.isPending ? "Processing..." : `Checkout — $${total.toFixed(2)}`}
+              {isPending ? "Redirecting to Stripe..." : `Checkout — $${total.toFixed(2)}`}
             </Button>
 
             <p className="text-xs text-[var(--color-sage)] text-center mt-3">

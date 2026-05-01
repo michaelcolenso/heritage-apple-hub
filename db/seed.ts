@@ -25,6 +25,8 @@ async function seed() {
       hardinessZone: 7,
       bio: "Family orchard specializing in heritage cider apples. Over 200 varieties on dwarfing rootstock.",
       isVerifiedSeller: true,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
     },
     {
       unionId: "seller_union_002",
@@ -35,6 +37,8 @@ async function seed() {
       hardinessZone: 4,
       bio: "Small-scale preservation orchard in the Northeast Kingdom. Certified organic since 2008.",
       isVerifiedSeller: true,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
     },
     {
       unionId: "seller_union_003",
@@ -45,6 +49,8 @@ async function seed() {
       hardinessZone: 9,
       bio: "California's premier source for rare apple varieties. We graft to order each spring.",
       isVerifiedSeller: true,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
     },
     {
       unionId: "buyer_union_001",

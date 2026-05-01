@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, MapPin, ShoppingCart, SlidersHorizontal } from "lucide-react";
+import { Search, MapPin, ShoppingCart, SlidersHorizontal, X } from "lucide-react";
 import { toast } from "sonner";
 import Footer from "@/sections/Footer";
 
@@ -12,14 +12,30 @@ export default function Marketplace() {
   const [search, setSearch] = useState("");
   const [zone, setZone] = useState<number | undefined>();
   const [page, setPage] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
   const utils = trpc.useUtils();
+
+  const sellerParam = searchParams.get("seller");
+  const sellerId = sellerParam && /^\d+$/.test(sellerParam) ? Number(sellerParam) : undefined;
 
   const { data, isLoading } = trpc.listing.list.useQuery({
     page,
     limit: 12,
     zone,
+    sellerId,
     sortBy: "newest",
   });
+
+  const sellerName = sellerId
+    ? data?.items.find((item) => item.sellerId === sellerId)?.sellerName
+    : undefined;
+
+  const clearSeller = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("seller");
+    setSearchParams(next);
+    setPage(1);
+  };
 
   const addToCart = trpc.cart.add.useMutation({
     onSuccess: () => {
@@ -49,6 +65,14 @@ export default function Marketplace() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {sellerId && (
+          <div className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-sage)]/10 text-[var(--color-sage)] text-xs font-mono">
+            <span>Seller: {sellerName ?? `#${sellerId}`}</span>
+            <button onClick={clearSeller} aria-label="Clear seller filter" className="hover:text-[var(--color-flesh)]">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3 mb-8">
           <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -89,11 +113,19 @@ export default function Marketplace() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredItems?.map((listing) => (
+              {filteredItems?.map((listing) => {
+                const listingImages = Array.isArray(listing.images) ? (listing.images as string[]) : [];
+                const heroImage = listingImages[0] ?? listing.varietyImage ?? null;
+                return (
                 <div
                   key={listing.id}
                   className="bg-[var(--color-surface-solid)] rounded-2xl p-5 hover:-translate-y-1 hover:shadow-lg transition-all duration-300"
                 >
+                  {heroImage && (
+                    <div className="aspect-[4/3] -mx-5 -mt-5 mb-4 overflow-hidden rounded-t-2xl bg-[var(--color-sage-light)]/20">
+                      <img src={heroImage} alt={listing.varietyName} className="w-full h-full object-cover" />
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-8 h-8 rounded-full bg-[var(--color-sage-light)]/30 flex items-center justify-center">
                       <span className="text-xs font-mono text-[var(--color-sage)]">
@@ -148,7 +180,8 @@ export default function Marketplace() {
                     </Button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {filteredItems?.length === 0 && (

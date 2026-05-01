@@ -11,7 +11,11 @@ import Cart from "./pages/Cart";
 import Orders from "./pages/Orders";
 import Sellers from "./pages/Sellers";
 import Dashboard from "./pages/Dashboard";
+import CheckoutSuccess from "./pages/CheckoutSuccess";
+import CheckoutCancel from "./pages/CheckoutCancel";
+import Admin from "./pages/Admin";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import AdminRoute from "@/components/AdminRoute";
 
 export default function App() {
   return (
@@ -27,7 +31,12 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/cart" element={<Cart />} />
           <Route path="/orders" element={<Orders />} />
+          <Route path="/checkout/success" element={<CheckoutSuccess />} />
+          <Route path="/checkout/cancel" element={<CheckoutCancel />} />
           <Route path="/dashboard/*" element={<Dashboard />} />
+          <Route element={<AdminRoute />}>
+            <Route path="/admin/*" element={<Admin />} />
+          </Route>
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

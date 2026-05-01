@@ -1,8 +1,11 @@
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Package, Truck, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Package, Truck, CheckCircle, Clock, AlertCircle, CreditCard } from "lucide-react";
 import Footer from "@/sections/Footer";
+import ReviewDialog from "@/components/ReviewDialog";
+import { toast } from "sonner";
 
 const statusConfig: Record<string, { label: string; icon: typeof Package; color: string }> = {
   pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -15,6 +18,12 @@ const statusConfig: Record<string, { label: string; icon: typeof Package; color:
 
 export default function Orders() {
   const { data: orders, isLoading } = trpc.order.list.useQuery();
+  const resumePayment = trpc.payment.createCheckoutSession.useMutation({
+    onSuccess: (data) => {
+      if (data?.url) window.location.assign(data.url);
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   return (
     <div className="min-h-screen bg-[var(--color-bone)] pt-20">
@@ -77,13 +86,27 @@ export default function Orders() {
                     </div>
                   </div>
 
-                  {status === "delivered" && (
-                    <Link
-                      to="#"
-                      className="text-sm text-[var(--color-flesh)] hover:underline"
-                    >
-                      Leave a review →
-                    </Link>
+                  {status === "pending" && (
+                    <div className="flex items-center gap-3 pt-1">
+                      <Button
+                        size="sm"
+                        onClick={() => resumePayment.mutate({ orderIds: [order.id] })}
+                        disabled={resumePayment.isPending}
+                        className="bg-[var(--color-flesh)] hover:bg-[var(--color-flesh)]/90 text-white rounded-full"
+                      >
+                        <CreditCard className="w-3.5 h-3.5 mr-1.5" />
+                        {resumePayment.isPending ? "Redirecting..." : "Pay now"}
+                      </Button>
+                      <p className="text-xs text-[var(--color-sage)]">
+                        Awaiting payment — finish checkout to confirm your order.
+                      </p>
+                    </div>
+                  )}
+                  {status === "delivered" && !order.hasReview && (
+                    <ReviewDialog orderId={order.id} varietyName={order.varietyName} />
+                  )}
+                  {status === "delivered" && order.hasReview && (
+                    <p className="text-sm text-[var(--color-sage)]">Reviewed · thanks!</p>
                   )}
                 </div>
               );
